@@ -1,159 +1,64 @@
+import { useEffect, useReducer } from "react";
 import "./styles.css";
+import { initialState, reducer } from "./domain/store";
+import type { HandoverState } from "./domain/types";
+import { TopBar, Violations } from "./components/TopBar";
+import { Ledger } from "./components/Ledger";
+import { PackingPanel } from "./components/PackingPanel";
+import { BatchPanel } from "./components/BatchPanel";
+import { Conflicts } from "./components/Conflicts";
+import { MasterData } from "./components/MasterData";
+import { StoredRecords } from "./components/StoredRecords";
+import { LogPanel } from "./components/LogPanel";
 
-const project = {
-  "id": "hxwl-10",
-  "port": 5110,
-  "title": "考古探方记录",
-  "subtitle": "遗址探方、地层关系与出土物坐标档案",
-  "stack": "React + Vite + TypeScript + CSS",
-  "theme": [
-    "#854d0e",
-    "#047857",
-    "#475569"
-  ],
-  "domain": "考古发掘",
-  "users": [
-    "发掘队员",
-    "领队",
-    "资料整理员"
-  ],
-  "metrics": [
-    "探方数",
-    "地层数",
-    "出土物",
-    "未整理记录"
-  ],
-  "filters": [
-    "灰坑",
-    "墓葬",
-    "房址",
-    "沟状遗迹"
-  ],
-  "fields": [
-    "遗址",
-    "探方",
-    "地层",
-    "遗迹单位",
-    "深度",
-    "土色",
-    "坐标点",
-    "出土物"
-  ],
-  "records": [
-    [
-      "T0203",
-      "第3层",
-      "灰褐土",
-      "陶片12件，坐标E3N4"
-    ],
-    [
-      "T0204",
-      "H12灰坑",
-      "黑褐土",
-      "夹炭屑，见动物骨"
-    ],
-    [
-      "T0301",
-      "F2房址",
-      "夯土面",
-      "柱洞关系需复核"
-    ]
-  ]
-};
+const STORAGE_KEY = "hxwl-handover-state-v1";
 
-const statusColors = ["status-ok", "status-watch", "status-danger"];
-
-function MetricCard({ label, value, index }: { label: string; value: string; index: number }) {
-  return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <i className={statusColors[index % statusColors.length]} />
-    </article>
-  );
+function init(): HandoverState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as HandoverState;
+  } catch { /* 忽略损坏存档 */ }
+  return initialState();
 }
 
 function App() {
-  const values = project.metrics.map((metric: string, index: number) => {
-    const base = [84, 12, 31, 7][index % 4];
-    return String(base + index * 3);
-  });
+  const [state, dispatch] = useReducer(reducer, undefined, init);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch { /* 存储满等情况忽略 */ }
+  }, [state]);
 
   return (
     <main className="app-shell">
       <section className="hero">
         <div>
-          <p className="eyebrow">{project.id} · port {project.port}</p>
-          <h1>{project.title}</h1>
-          <p className="subtitle">{project.subtitle}</p>
+          <p className="eyebrow">hxwl-10 · 出土物交接台</p>
+          <h1>现场 × 库房 可续作交接台</h1>
+          <p className="subtitle">
+            三类记录一账贯通：出土物总台账（双副本）、现场装箱登记、库房入库登记。
+            装箱按重量与易碎等级分配柜位，满柜排队；交接中断可续作，重试幂等不重复占库位；
+            离线改动回连逐件合并，两边换箱保留两版待保管员裁决；等级变更只作废旧登记，已入库保留当时依据。
+          </p>
         </div>
         <div className="stack-card">
-          <span>技术栈</span>
-          <strong>{project.stack}</strong>
+          <span>一致性保证（实时稽核）</span>
+          <strong>一件出土物不占两个箱 · 一个周转箱不抢两个柜位</strong>
+          <span>纯逻辑层：React 与 Node 自测共用同一套引擎</span>
         </div>
       </section>
 
-      <section className="metrics-grid">
-        {project.metrics.map((metric: string, index: number) => (
-          <MetricCard key={metric} label={metric} value={values[index]} index={index} />
-        ))}
-      </section>
+      <TopBar state={state} dispatch={dispatch} />
+      <Violations state={state} />
 
-      <section className="workspace">
-        <aside className="panel narrow">
-          <h2>角色</h2>
-          <div className="chips">
-            {project.users.map((user: string) => (
-              <span key={user}>{user}</span>
-            ))}
-          </div>
-          <h2>筛选</h2>
-          <div className="chips muted">
-            {project.filters.map((filter: string) => (
-              <button key={filter}>{filter}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p>{project.domain}</p>
-              <h2>记录字段</h2>
-            </div>
-            <button className="primary-action">新增记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      <section className="records panel">
-        <div className="section-heading">
-          <div>
-            <p>示例数据</p>
-            <h2>近期记录</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="record-list">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")} className="record-card">
-              <div className="record-index">{String(index + 1).padStart(2, "0")}</div>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      <Ledger state={state} dispatch={dispatch} />
+      <Conflicts state={state} dispatch={dispatch} />
+      <PackingPanel state={state} dispatch={dispatch} />
+      <BatchPanel state={state} dispatch={dispatch} />
+      <StoredRecords state={state} />
+      <MasterData state={state} dispatch={dispatch} />
+      <LogPanel state={state} dispatch={dispatch} />
     </main>
   );
 }
