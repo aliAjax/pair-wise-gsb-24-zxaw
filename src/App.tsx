@@ -1,159 +1,97 @@
+import { useState, useSyncExternalStore } from "react";
+import { HandoffDesk } from "./domain/desk";
+import { RULE_VERSION } from "./domain/allocation";
+import { seed } from "./domain/seed";
+import { NODE_NAMES, type NodeId } from "./domain/types";
+import { BoxingPanel } from "./ui/BoxingPanel";
+import { ConflictsPanel } from "./ui/ConflictsPanel";
+import { EventLog } from "./ui/EventLog";
+import { LedgerPanel } from "./ui/LedgerPanel";
+import { RegistrationsPanel } from "./ui/RegistrationsPanel";
+import { SlotsPanel } from "./ui/SlotsPanel";
+import { TriViewPanel } from "./ui/TriViewPanel";
 import "./styles.css";
 
-const project = {
-  "id": "hxwl-10",
-  "port": 5110,
-  "title": "考古探方记录",
-  "subtitle": "遗址探方、地层关系与出土物坐标档案",
-  "stack": "React + Vite + TypeScript + CSS",
-  "theme": [
-    "#854d0e",
-    "#047857",
-    "#475569"
-  ],
-  "domain": "考古发掘",
-  "users": [
-    "发掘队员",
-    "领队",
-    "资料整理员"
-  ],
-  "metrics": [
-    "探方数",
-    "地层数",
-    "出土物",
-    "未整理记录"
-  ],
-  "filters": [
-    "灰坑",
-    "墓葬",
-    "房址",
-    "沟状遗迹"
-  ],
-  "fields": [
-    "遗址",
-    "探方",
-    "地层",
-    "遗迹单位",
-    "深度",
-    "土色",
-    "坐标点",
-    "出土物"
-  ],
-  "records": [
-    [
-      "T0203",
-      "第3层",
-      "灰褐土",
-      "陶片12件，坐标E3N4"
-    ],
-    [
-      "T0204",
-      "H12灰坑",
-      "黑褐土",
-      "夹炭屑，见动物骨"
-    ],
-    [
-      "T0301",
-      "F2房址",
-      "夯土面",
-      "柱洞关系需复核"
-    ]
-  ]
-};
-
-const statusColors = ["status-ok", "status-watch", "status-danger"];
-
-function MetricCard({ label, value, index }: { label: string; value: string; index: number }) {
+function MetricCard({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
     <article className="metric-card">
       <span>{label}</span>
       <strong>{value}</strong>
-      <i className={statusColors[index % statusColors.length]} />
+      <i className={tone} />
     </article>
   );
 }
 
 function App() {
-  const values = project.metrics.map((metric: string, index: number) => {
-    const base = [84, 12, 31, 7][index % 4];
-    return String(base + index * 3);
-  });
+  const [desk] = useState(() => new HandoffDesk(structuredClone(seed)));
+  const state = useSyncExternalStore(desk.subscribe, desk.getState);
+
+  const offline = state.connection === "offline";
+  const boxed = Object.values(state.baseView).filter((v) => v !== null).length;
+  const pendingCount = state.registrations.filter((r) => r.status === "pending").length;
+  const storedCount = state.registrations.filter((r) => r.status === "stored").length;
+  const awaitingCount = state.conflicts.filter((c) => c.status === "awaiting").length;
 
   return (
     <main className="app-shell">
       <section className="hero">
         <div>
-          <p className="eyebrow">{project.id} · port {project.port}</p>
-          <h1>{project.title}</h1>
-          <p className="subtitle">{project.subtitle}</p>
+          <p className="eyebrow">hxwl-10 · 出土物交接台 · {RULE_VERSION}</p>
+          <h1>装箱入库交接台</h1>
+          <p className="subtitle">
+            现场端、库房端各记一套，交接台把三类记录接成可续作的流水：
+            按重量与易碎等级装箱分柜、满柜排队；离线改动回连逐件合并、双版待裁决；
+            写入中断只重试未完成的箱、重放不占重位；等级一变待入库失效重算、已入库保留当时依据。
+          </p>
         </div>
         <div className="stack-card">
-          <span>技术栈</span>
-          <strong>{project.stack}</strong>
+          <span>连接状态</span>
+          <strong className={offline ? "conn-off" : "conn-on"}>
+            {offline ? "离线（改动暂存本端）" : "在线（三端同步）"}
+          </strong>
+          <div className="button-row">
+            <button
+              className={offline ? "primary-action" : ""}
+              onClick={() => desk.setConnection(offline ? "online" : "offline")}
+            >
+              {offline ? "回连合并" : "断网离线"}
+            </button>
+          </div>
+          <span>当前操作端（离线时改动记入该端）</span>
+          <div className="chips">
+            {(Object.keys(NODE_NAMES) as NodeId[]).map((node) => (
+              <button
+                key={node}
+                className={state.activeNode === node ? "node-active" : ""}
+                onClick={() => desk.setActiveNode(node)}
+              >
+                {NODE_NAMES[node]}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="metrics-grid">
-        {project.metrics.map((metric: string, index: number) => (
-          <MetricCard key={metric} label={metric} value={values[index]} index={index} />
-        ))}
+        <MetricCard label="出土物" value={state.artifacts.length} tone="status-ok" />
+        <MetricCard label="已装箱" value={boxed} tone="status-ok" />
+        <MetricCard label="待入库" value={pendingCount} tone="status-watch" />
+        <MetricCard label="已入库" value={storedCount} tone="status-ok" />
+        <MetricCard label="排队箱" value={state.queue.length} tone="status-watch" />
+        <MetricCard label="待裁决冲突" value={awaitingCount} tone="status-danger" />
       </section>
 
-      <section className="workspace">
-        <aside className="panel narrow">
-          <h2>角色</h2>
-          <div className="chips">
-            {project.users.map((user: string) => (
-              <span key={user}>{user}</span>
-            ))}
-          </div>
-          <h2>筛选</h2>
-          <div className="chips muted">
-            {project.filters.map((filter: string) => (
-              <button key={filter}>{filter}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p>{project.domain}</p>
-              <h2>记录字段</h2>
-            </div>
-            <button className="primary-action">新增记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      <section className="records panel">
-        <div className="section-heading">
-          <div>
-            <p>示例数据</p>
-            <h2>近期记录</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="record-list">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")} className="record-card">
-              <div className="record-index">{String(index + 1).padStart(2, "0")}</div>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      <TriViewPanel state={state} desk={desk} />
+      <div className="two-col">
+        <BoxingPanel state={state} desk={desk} />
+        <SlotsPanel state={state} desk={desk} />
+      </div>
+      <RegistrationsPanel state={state} desk={desk} />
+      <div className="two-col">
+        <ConflictsPanel state={state} desk={desk} />
+        <LedgerPanel state={state} desk={desk} />
+      </div>
+      <EventLog state={state} />
     </main>
   );
 }
